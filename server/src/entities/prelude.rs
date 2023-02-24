@@ -1,0 +1,9 @@
+pub use super::album_tags::Entity as AlbumTags;
+pub use super::albums::Entity as Albums;
+pub use super::artist_tags::Entity as ArtistTags;
+pub use super::artists::Entity as Artists;
+pub use super::songs::Entity as Songs;
+pub use super::tags::Entity as Tags;
+pub use super::users::Entity as Users;
+pub use super::users_albums::Entity as UsersAlbums;
+pub use super::users_songs::Entity as UsersSongs;
