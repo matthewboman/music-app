@@ -2,12 +2,17 @@ mod entities;
 mod schema;
 mod setup;
 
-use async_graphql::{
-    http::{playground_source, GraphQLPlaygroundConfig},
-    EmptySubscription, Schema,
-};
-use async_graphql_rocket::*;
-use rocket::{response::content, *};
+// use async_graphql::{
+//     http::{playground_source, GraphQLPlaygroundConfig},
+//     EmptySubscription, Schema,
+// };
+// use async_graphql_rocket::*;
+
+use actix_web::{guard, web, web::Data, App, HttpResponse, HttpServer, Result};
+use async_graphql::{http::GraphiQLSource, EmptyMutation, EmptySubscription, Schema};
+use async_graphql_actix_web::{GraphQLRequest, GraphQLResponse};
+
+// use rocket::{response::content, *};
 use sea_orm::*;
 
 use schema::*;
@@ -15,18 +20,19 @@ use setup::set_up_db;
 
 type SchemaType = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
-#[rocket::get("/graphql")]
-fn graphql_playground() -> content::RawHtml<String> {
-    content::RawHtml(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
+async fn index(schema: web::Data<SchemaType>, req: GraphQLRequest) -> GraphQLResponse {
+    schema.execute(req.into_inner()).await.into()
 }
 
-#[rocket::post("/graphql", data = "<request>", format = "application/json")]
-async fn graphql_request(schema: &State<SchemaType>, request: GraphQLRequest) -> GraphQLResponse {
-    request.execute(schema).await
+async fn index_graphiql() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(GraphiQLSource::build().endpoint("/").finish()))
 }
 
-#[launch]
-async fn rocket() -> _ {
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
     let db = match set_up_db().await {
         Ok(db) => db,
         Err(err) => panic!("{}", err)
@@ -36,44 +42,15 @@ async fn rocket() -> _ {
         .data(db)
         .finish();
 
-    rocket::build()
-        .manage(schema)
-        .mount("/", routes![
-            graphql_playground,
-            graphql_request
-        ])
-        .register("/", catchers![
-            not_found
-        ])
-}
+    println!("GraphiQL IDE: http://localhost:8000");
 
-// Error handling
-
-#[catch(404)]
-pub fn not_found(req: &Request<'_>) -> String {
-    format!("{} not found.", req.uri())
-}
-
-#[derive(Responder)]
-#[response(status = 500, content_type = "json")]
-struct ErrorResponder {
-    message: String,
-}
-
-impl From<DbErr> for ErrorResponder {
-    fn from(err: DbErr) -> ErrorResponder {
-        ErrorResponder { message: err.to_string() }
-    }
-}
-
-impl From<String> for ErrorResponder {
-    fn from(string: String) -> ErrorResponder {
-        ErrorResponder { message: string }
-    }
-}
-
-impl From<&str> for ErrorResponder {
-    fn from(str: &str) -> ErrorResponder {
-        str.to_owned().into()
-    }
+    HttpServer::new(move || {
+        App::new()
+            .app_data(Data::new(schema.clone()))
+            .service(web::resource("/").guard(guard::Post()).to(index))
+            .service(web::resource("/").guard(guard::Get()).to(index_graphiql))
+    })
+    .bind("127.0.0.1:8000")?
+    .run()
+    .await
 }
